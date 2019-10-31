@@ -2,12 +2,15 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 
 	"github.com/gdamore/tcell"
 )
+
+const TabStop = 4
 
 func main() {
 	editor := InitEditor()
@@ -33,7 +36,8 @@ func errorCheck(err error) {
 }
 
 type Buffer struct {
-	text [][]rune
+	text   [][]rune
+	render []rune
 }
 
 func (buf *Buffer) Open(filename string) error {
@@ -79,9 +83,43 @@ func (buf *Buffer) RowLen() int {
 
 func (buf *Buffer) ColLen(i int) int {
 	if i < len(buf.text) {
-		return len(buf.text[i])
+		length := len(buf.text[i])
+		for index, r := range buf.text[i] {
+			if r == '\t' {
+				length += TabStop - 1 - (index % TabStop)
+			}
+		}
+		return length
 	}
 	return 0
+}
+
+func (buf *Buffer) UpdateRow(i int) error {
+	line, err := buf.Line(i)
+	if err != nil {
+		return err
+	}
+	buf.render = make([]rune, 0, len(line))
+
+	for _, r := range line {
+		if r == '\t' {
+			buf.render = append(buf.render, ' ')
+			for len(buf.render)%TabStop != 0 {
+				buf.render = append(buf.render, ' ')
+			}
+		} else {
+			buf.render = append(buf.render, r)
+		}
+	}
+	return nil
+}
+
+func (buf *Buffer) Render(i int) ([]rune, error) {
+	err := buf.UpdateRow(i)
+	if err != nil {
+		return nil, err
+	}
+	return buf.render, nil
 }
 
 type Editor struct {
@@ -116,14 +154,18 @@ func (editor *Editor) KeyEvent(key tcell.Key) {
 		editor.MoveCursor(key)
 	case tcell.KeyRight:
 		editor.MoveCursor(key)
+	case tcell.KeyPgUp:
+		editor.MoveCursor(key)
+	case tcell.KeyPgDn:
+		editor.MoveCursor(key)
 	}
 }
 
 func (editor *Editor) DrowRows() {
 	_, wy := editor.S.Size()
-	for y := 0; y < wy; y++ {
+	for y := 0; y < wy-1; y++ {
 		filerow := y + editor.Rowoff
-		row, err := editor.Buf.Line(filerow)
+		row, err := editor.Buf.Render(filerow)
 		if err != nil {
 			editor.S.SetContent(0, y, '~', nil, tcell.StyleDefault)
 		} else {
@@ -135,6 +177,18 @@ func (editor *Editor) DrowRows() {
 			for x, r := range row[start:] {
 				editor.S.SetContent(x, y, r, nil, tcell.StyleDefault)
 			}
+		}
+	}
+}
+
+func (editor *Editor) DrowStatusBar() {
+	rowStatus := []rune(fmt.Sprintf("%d/%d", editor.Cy+1, editor.Buf.RowLen()))
+	wx, wy := editor.S.Size()
+	for x := 0; x < wx; x++ {
+		if x < len(rowStatus) {
+			editor.S.SetContent(x, wy-1, rowStatus[x], nil, tcell.StyleDefault.Reverse(true))
+		} else {
+			editor.S.SetContent(x, wy-1, ' ', nil, tcell.StyleDefault.Reverse(true))
 		}
 	}
 }
@@ -163,6 +217,16 @@ func (editor *Editor) MoveCursor(key tcell.Key) {
 			editor.Cy++
 			editor.Cx = 0
 		}
+	case tcell.KeyPgUp:
+		editor.Cy = editor.Rowoff
+	case tcell.KeyPgDn:
+		_, wy := editor.S.Size()
+		wy--
+		editor.Cy = editor.Rowoff + wy - 1
+		rowLen := editor.Buf.RowLen()
+		if editor.Cy > rowLen {
+			editor.Cy = rowLen
+		}
 	}
 
 	colLen := editor.Buf.ColLen(editor.Cy)
@@ -174,6 +238,7 @@ func (editor *Editor) MoveCursor(key tcell.Key) {
 
 func (editor *Editor) Scroll() {
 	wx, wy := editor.S.Size()
+	wy--
 	if editor.Cy < editor.Rowoff {
 		editor.Rowoff = editor.Cy
 	}
@@ -193,6 +258,7 @@ func (editor *Editor) RefreshScreen() {
 	editor.S.Clear()
 	editor.Scroll()
 	editor.DrowRows()
+	editor.DrowStatusBar()
 	editor.S.ShowCursor(editor.Cx-editor.Coloff, editor.Cy-editor.Rowoff)
 	editor.S.Show()
 }
@@ -202,5 +268,5 @@ func InitEditor() *Editor {
 	errorCheck(err)
 	cx, cy, rowoff, coloff := 0, 0, 0, 0
 
-	return &Editor{s, cx, cy, rowoff, coloff, Buffer{[][]rune{}}}
+	return &Editor{s, cx, cy, rowoff, coloff, Buffer{[][]rune{}, []rune{}}}
 }
