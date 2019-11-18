@@ -20,6 +20,7 @@ func main() {
 	if len(os.Args) > 1 {
 		err := editor.Buf.Open(os.Args[1])
 		errorCheck(err)
+		editor.FileName = os.Args[1]
 	}
 	editor.S.ShowCursor(editor.Cx, editor.Cy)
 
@@ -122,29 +123,59 @@ func (buf *Buffer) Render(i int) ([]rune, error) {
 	return buf.render, nil
 }
 
-type Editor struct {
-	S      tcell.Screen
-	Cx     int
-	Cy     int
-	Rowoff int
-	Coloff int
-	Buf    Buffer
-}
-
-func (editor *Editor) ProcessEvent() {
-	ev := editor.S.PollEvent()
-	switch ev := ev.(type) {
-	case *tcell.EventKey:
-		editor.KeyEvent(ev.Key())
+func (buf *Buffer) InsertChar(rowNum int, colNum int, r rune) {
+	if rowNum < len(buf.text) && colNum >= 0 {
+		if colNum < len(buf.text[rowNum]) {
+			buf.text[rowNum] = append(buf.text[rowNum][:colNum+1], buf.text[rowNum][colNum:]...)
+			buf.text[rowNum][colNum] = r
+		} else if colNum == len(buf.text[rowNum]) {
+			buf.text[rowNum] = append(buf.text[rowNum], r)
+		}
 	}
 }
 
-func (editor *Editor) KeyEvent(key tcell.Key) {
+func (buf *Buffer) RowToString() string {
+	s := ""
+	for _, row := range buf.text {
+		s += string(row)
+		s += "\n"
+	}
+	return s
+}
+
+func (buf *Buffer) InsertNewLine(rowNum int) {
+	if rowNum < len(buf.text) {
+		buf.text = append(buf.text[:rowNum+1], buf.text[rowNum:]...)
+	}
+}
+
+type Editor struct {
+	S        tcell.Screen
+	Cx       int
+	Cy       int
+	Rowoff   int
+	Coloff   int
+	Buf      Buffer
+	FileName string
+}
+
+func (editor *Editor) ProcessEvent() {
+	event := editor.S.PollEvent()
+	switch ev := event.(type) {
+	case *tcell.EventKey:
+		editor.KeyEvent(ev)
+	}
+}
+
+func (editor *Editor) KeyEvent(ev *tcell.EventKey) {
+	key := ev.Key()
 	switch key {
 
 	case tcell.KeyCtrlQ:
 		editor.S.Fini()
 		os.Exit(0)
+	case tcell.KeyCtrlS:
+		editor.Save()
 
 	case tcell.KeyUp:
 		editor.MoveCursor(key)
@@ -158,6 +189,9 @@ func (editor *Editor) KeyEvent(key tcell.Key) {
 		editor.MoveCursor(key)
 	case tcell.KeyPgDn:
 		editor.MoveCursor(key)
+
+	case tcell.KeyRune:
+		editor.InsertChar(ev.Rune())
 	}
 }
 
@@ -191,6 +225,11 @@ func (editor *Editor) DrowStatusBar() {
 			editor.S.SetContent(x, wy-1, ' ', nil, tcell.StyleDefault.Reverse(true))
 		}
 	}
+}
+
+func (editor *Editor) InsertChar(c rune) {
+	editor.Buf.InsertChar(editor.Cy, editor.Cx, c)
+	editor.Cx++
 }
 
 func (editor *Editor) MoveCursor(key tcell.Key) {
@@ -233,7 +272,6 @@ func (editor *Editor) MoveCursor(key tcell.Key) {
 	if editor.Cx > colLen {
 		editor.Cx = colLen
 	}
-
 }
 
 func (editor *Editor) Scroll() {
@@ -263,10 +301,18 @@ func (editor *Editor) RefreshScreen() {
 	editor.S.Show()
 }
 
+func (editor *Editor) Save() {
+	if editor.FileName != "" {
+		s := editor.Buf.RowToString()
+		err := ioutil.WriteFile(editor.FileName, ([]byte)(s), 0644)
+		errorCheck(err)
+	}
+}
+
 func InitEditor() *Editor {
 	s, err := tcell.NewScreen()
 	errorCheck(err)
 	cx, cy, rowoff, coloff := 0, 0, 0, 0
 
-	return &Editor{s, cx, cy, rowoff, coloff, Buffer{[][]rune{}, []rune{}}}
+	return &Editor{s, cx, cy, rowoff, coloff, Buffer{[][]rune{}, []rune{}}, ""}
 }
