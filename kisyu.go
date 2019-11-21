@@ -100,6 +100,15 @@ func (row *Row) InsertRune(colNum int, r rune) {
 	}
 }
 
+func (row *Row) DeleteRune(colNum int) {
+	if colNum < len(row.Text) {
+		row.Text = append(row.Text[:colNum-1], row.Text[colNum:]...)
+	} else {
+		row.Text = row.Text[:len(row.Text)-1]
+	}
+	row.Dirty = true
+}
+
 func InitRow(text []rune) Row {
 	row := Row{text, []rune{}, []int{0}, true}
 	return row
@@ -150,12 +159,28 @@ func (buf *Buffer) Render(rowNum int) ([]rune, error) {
 }
 
 func (buf *Buffer) InsertRune(r rune) {
-	rowNum := buf.cy
-	colNum := buf.cx
-	if rowNum < len(buf.rows) && colNum >= 0 {
-		buf.rows[rowNum].InsertRune(colNum, r)
+	if buf.cy < len(buf.rows) && buf.cy >= 0 {
+		buf.rows[buf.cx].InsertRune(buf.cx, r)
 	}
 	buf.cx++
+}
+
+func (buf *Buffer) DeleteRune() {
+	if buf.cx > 0 {
+		buf.rows[buf.cy].DeleteRune(buf.cx)
+		buf.cx--
+	} else if buf.cx == 0 && buf.cy > 0 {
+		for _, r := range buf.rows[buf.cy].Text {
+			buf.rows[buf.cy-1].InsertRune(len(buf.rows[buf.cy-1].Text), r)
+		}
+		if buf.cy < buf.RowLen() {
+			buf.rows = append(buf.rows[:buf.cy], buf.rows[buf.cy+1:]...)
+		} else {
+			buf.rows = buf.rows[:buf.cy-1]
+		}
+		buf.cy--
+		buf.cx = len(buf.rows[buf.cy].Text)
+	}
 }
 
 func (buf *Buffer) RowToString() string {
@@ -281,13 +306,11 @@ func (editor *Editor) ProcessEvent() {
 func (editor *Editor) KeyEvent(ev *tcell.EventKey) {
 	key := ev.Key()
 	switch key {
-
 	case tcell.KeyCtrlQ:
 		editor.S.Fini()
 		os.Exit(0)
 	case tcell.KeyCtrlS:
 		editor.Save()
-
 	case tcell.KeyUp:
 		editor.Buf.MoveCursor(Up)
 	case tcell.KeyDown:
@@ -305,7 +328,10 @@ func (editor *Editor) KeyEvent(ev *tcell.EventKey) {
 		editor.Buf.MoveCx(Home)
 	case tcell.KeyEnd:
 		editor.Buf.MoveCx(End)
-
+	case tcell.KeyBackspace2:
+		editor.Buf.DeleteRune()
+	case tcell.KeyEnter:
+		editor.Buf.InsertNewLine()
 	case tcell.KeyRune:
 		editor.Buf.InsertRune(ev.Rune())
 	}
