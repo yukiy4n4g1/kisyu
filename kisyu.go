@@ -160,7 +160,7 @@ func (buf *Buffer) Render(rowNum int) ([]rune, error) {
 
 func (buf *Buffer) InsertRune(r rune) {
 	if buf.cy < len(buf.rows) && buf.cy >= 0 {
-		buf.rows[buf.cx].InsertRune(buf.cx, r)
+		buf.rows[buf.cy].InsertRune(buf.cx, r)
 	}
 	buf.cx++
 }
@@ -415,11 +415,4 @@ func InitEditor() *Editor {
 	rowoff, coloff := 0, 0
 
 	return &Editor{s, rowoff, coloff, InitBuffer(), ""}
-}
-
-func max(x, y int) int {
-	if x > y {
-		return x
-	}
-	return y
 }
